@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Cursor Tracker</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #f0f2f5;
+            font-family: sans-serif;
+        }
+        #status {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            padding: 8px 12px;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            pointer-events: none;
+        }
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="status">Connecting to server...</div>
+    <canvas id="cursorCanvas"></canvas>
+
+    <script>
+        const statusDiv = document.getElementById('status');
+        const canvas = document.getElementById('cursorCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Set canvas dimensions
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Connect to your Node.js server endpoint
+        const socket = new WebSocket('http://localhost:8080/update_cursor_position');
+
+        socket.onopen = () => {
+            statusDiv.textContent = 'Connected! Move your mouse.';
+            statusDiv.style.color = 'green';
+        };
+
+        socket.onerror = (error) => {
+            statusDiv.textContent = 'Connection Error';
+            statusDiv.style.color = 'red';
+            console.error('WebSocket Error:', error);
+        };
+
+        socket.onclose = () => {
+            statusDiv.textContent = 'Disconnected from server';
+            statusDiv.style.color = 'gray';
+        };
+
+        // Track your own movement and send it over the socket
+        let lastX = 0;
+        let lastY = 0;
+
+        window.addEventListener('mousemove', (event) => {
+            if (socket.readyState !== WebSocket.OPEN) return;
+
+            const x_pos = event.clientX;
+            const y_pos = event.clientY;
+            
+            // Simple vector calculation based on previous position
+            const x_vector = x_pos - lastX;
+            const y_vector = y_pos - lastY;
+
+            lastX = x_pos;
+            lastY = y_pos;
+
+            const payload = {
+                x_pos: x_pos,
+                y_pos: y_pos,
+                x_vector: x_vector,
+                y_vector: y_vector
+            };
+
+            socket.send(JSON.stringify(payload));
+        });
+
+        // Listen for data from other clients and draw their dots
+        socket.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                
+                // Clear canvas slightly each frame to create a trail effect
+                ctx.fillStyle = 'rgba(240, 242, 245, 0.3)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                // Draw a circle for the incoming pointer position
+                ctx.beginPath();
+                ctx.arc(data.x_pos, data.y_pos, 8, 0, Math.PI * 2);
+                ctx.fillStyle = '#ff4757';
+                ctx.fill();
+                ctx.closePath();
+
+            } catch (err) {
+                console.error('Error parsing inbound message:', err);
+            }
+        };
+    </script>
+</body>
+</html>
