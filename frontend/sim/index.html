@@ -1,13 +1,365 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>sim</title>
-  </head>
-  <body>
-    <canvas id="canvas" width="800" height="600"></canvas>
-    <script type="module" src="src/main.js"></script>
-  </body>
-</html>
+<!DOCTYPE html>
+<html lang="en" style="--accent: hsl(176, 86%, 64%);"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FloWorks</title>
+  <link rel="icon" href="./FloWorks_files/favicon.svg" type="image/svg+xml">
+  <style>
+    :root {
+      --ink: #f6fffd;
+      --muted: #9fb4ae;
+      --surface: rgba(10, 16, 16, 0.72);
+      --line: rgba(255, 255, 255, 0.14);
+      --accent: #4fd1c5;
+    }
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+    }
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: #000;
+    }
+    .app-shell {
+      position: fixed;
+      inset: 0;
+      min-height: 100vh;
+      background: #000;
+    }
+    #fluid-canvas {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      display: block;
+      background: #000;
+      cursor: crosshair;
+      touch-action: none;
+    }
+    header {
+      position: fixed;
+      z-index: 5;
+      inset: 18px 18px auto;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      pointer-events: none;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      height: 42px;
+      padding: 6px 11px 6px 6px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: 0 18px 55px rgba(0, 0, 0, 0.42);
+      color: var(--ink);
+      text-decoration: none;
+      backdrop-filter: blur(18px);
+      pointer-events: auto;
+    }
+    .brand img {
+      width: 30px;
+      height: 30px;
+      display: block;
+    }
+    .brand span {
+      font-size: 17px;
+      font-weight: 720;
+      line-height: 1;
+      letter-spacing: 0;
+    }
+    .menu {
+      position: relative;
+      pointer-events: auto;
+    }
+    .menu-toggle {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      color: var(--ink);
+      cursor: pointer;
+      box-shadow: 0 18px 55px rgba(0, 0, 0, 0.42);
+      backdrop-filter: blur(18px);
+      transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+    }
+    .menu-toggle:hover,
+    .menu-toggle:focus-visible {
+      border-color: rgba(79, 209, 197, 0.72);
+      background: rgba(18, 28, 28, 0.9);
+      outline: none;
+    }
+    .menu-toggle[aria-expanded="true"] {
+      transform: rotate(180deg);
+    }
+    .menu-toggle svg {
+      width: 18px;
+      height: 18px;
+    }
+    .panel {
+      position: absolute;
+      top: 52px;
+      right: 0;
+      width: min(410px, calc(100vw - 36px));
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(8, 13, 13, 0.86);
+      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.58);
+      backdrop-filter: blur(22px);
+      transform-origin: top right;
+      transform: translateY(-8px) scale(0.98);
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 160ms ease, transform 160ms ease, visibility 160ms ease;
+    }
+    .panel.open {
+      transform: translateY(0) scale(1);
+      opacity: 1;
+      visibility: visible;
+    }
+    .panel h2 {
+      margin: 0 0 14px;
+      font-size: 14px;
+      font-weight: 760;
+      letter-spacing: 0;
+    }
+    .slider-row {
+      display: grid;
+      grid-template-columns: 104px 1fr 42px;
+      align-items: center;
+      gap: 12px;
+      min-height: 40px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+    output {
+      color: var(--ink);
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+    }
+    @media (max-width: 620px) {
+      header {
+        inset: 14px 14px auto;
+      }
+      .panel {
+        width: calc(100vw - 28px);
+      }
+      .slider-row {
+        grid-template-columns: 86px 1fr 38px;
+        gap: 9px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app-shell">
+    <canvas id="fluid-canvas" aria-label="Interactive FloWorks fluid canvas" width="3024" height="1646" style="width: 1512px; height: 823px;"></canvas>
+    <header>
+      <a class="brand" href="file:///Users/tenso/Documents/Codex/2026-06-11/in-html-create-a-website-that/outputs/index.html#" aria-label="FloWorks home">
+        <img src="./FloWorks_files/favicon.svg" alt="">
+        <span>FloWorks</span>
+      </a>
+      <div class="menu">
+        <button class="menu-toggle" type="button" aria-label="Open fluid settings" aria-expanded="false" aria-controls="settings-panel">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+        </button>
+        <section class="panel" id="settings-panel" aria-label="Fluid settings">
+          <h2>Fluid Settings</h2>
+          <label class="slider-row">
+            <span>Size</span>
+            <input type="range" min="18" max="180" value="72" data-setting="size">
+            <output>72</output>
+          </label>
+          <label class="slider-row">
+            <span>Hue</span>
+            <input type="range" min="0" max="360" value="176" data-setting="hue">
+            <output>176</output>
+          </label>
+          <label class="slider-row">
+            <span>Spread</span>
+            <input type="range" min="0" max="140" value="46" data-setting="spread">
+            <output>46</output>
+          </label>
+          <label class="slider-row">
+            <span>Flow</span>
+            <input type="range" min="1" max="100" value="58" data-setting="flow">
+            <output>58</output>
+          </label>
+          <label class="slider-row">
+            <span>Trail</span>
+            <input type="range" min="4" max="36" value="13" data-setting="trail">
+            <output>13</output>
+          </label>
+        </section>
+      </div>
+    </header>
+  </main>
+  <script>
+    const canvas = document.querySelector("#fluid-canvas");
+    const ctx = canvas.getContext("2d", { alpha: false });
+    const toggle = document.querySelector(".menu-toggle");
+    const panel = document.querySelector("#settings-panel");
+    const settings = {
+      size: 72,
+      hue: 176,
+      spread: 46,
+      flow: 58,
+      trail: 13
+    };
+    let width = 0;
+    let height = 0;
+    let pointer = null;
+    let lastPointer = null;
+    let time = 0;
+    const droplets = [];
+    function resizeCanvas() {
+      const scale = Math.min(window.devicePixelRatio || 1, 2);
+      width = window.innerWidth;
+      height = window.innerHeight;
+      canvas.width = Math.floor(width * scale);
+      canvas.height = Math.floor(height * scale);
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+      ctx.setTransform(scale, 0, 0, scale, 0, 0);
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, width, height);
+    }
+    function addFluid(x, y, forceX = 0, forceY = 0) {
+      const count = Math.ceil(settings.flow / 7);
+      const radius = settings.size;
+      for (let index = 0; index < count; index += 1) {
+        const angle = Math.random() * Math.PI * 2;
+        const distance = Math.random() * radius * 0.42;
+        const speed = 0.8 + Math.random() * (settings.flow / 22);
+        droplets.push({
+          x: x + Math.cos(angle) * distance,
+          y: y + Math.sin(angle) * distance,
+          vx: forceX * 0.045 + Math.cos(angle) * speed,
+          vy: forceY * 0.045 + Math.sin(angle) * speed,
+          radius: radius * (0.34 + Math.random() * 0.48),
+          hue: settings.hue + (Math.random() - 0.5) * settings.spread,
+          alpha: 0.42 + Math.random() * 0.28,
+          life: 1
+        });
+      }
+      if (droplets.length > 900) {
+        droplets.splice(0, droplets.length - 900);
+      }
+    }
+    function setPointer(event) {
+      const point = {
+        x: event.clientX,
+        y: event.clientY
+      };
+      const previous = lastPointer || point;
+      pointer = point;
+      lastPointer = point;
+      addFluid(point.x, point.y, point.x - previous.x, point.y - previous.y);
+    }
+    function render() {
+      time += 0.016;
+      const fade = 0.035 + (40 - settings.trail) * 0.0032;
+      ctx.globalCompositeOperation = "source-over";
+      ctx.fillStyle = `rgba(0, 0, 0, ${Math.max(0.018, fade)})`;
+      ctx.fillRect(0, 0, width, height);
+      if (pointer) {
+        addFluid(pointer.x, pointer.y, 0, 0);
+      }
+      ctx.globalCompositeOperation = "lighter";
+      for (let index = droplets.length - 1; index >= 0; index -= 1) {
+        const drop = droplets[index];
+        const swirl = Math.sin(time * 1.8 + drop.x * 0.009 + drop.y * 0.006) * (settings.flow / 180);
+        const drag = 0.982 - settings.trail * 0.0009;
+        drop.vx += Math.cos(swirl + drop.y * 0.004) * 0.035;
+        drop.vy += Math.sin(swirl + drop.x * 0.004) * 0.035;
+        drop.x += drop.vx;
+        drop.y += drop.vy;
+        drop.vx *= drag;
+        drop.vy *= drag;
+        drop.radius *= 0.992;
+        drop.life -= 0.006 + (40 - settings.trail) * 0.00045;
+        const gradient = ctx.createRadialGradient(drop.x, drop.y, 0, drop.x, drop.y, Math.max(1, drop.radius));
+        gradient.addColorStop(0, `hsla(${drop.hue}, 100%, 68%, ${drop.alpha * drop.life})`);
+        gradient.addColorStop(0.46, `hsla(${drop.hue + 18}, 96%, 52%, ${drop.alpha * drop.life * 0.42})`);
+        gradient.addColorStop(1, `hsla(${drop.hue + 40}, 100%, 50%, 0)`);
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(drop.x, drop.y, Math.max(1, drop.radius), 0, Math.PI * 2);
+        ctx.fill();
+        if (
+          drop.life <= 0 ||
+          drop.radius < 0.7 ||
+          drop.x < -260 ||
+          drop.x > width + 260 ||
+          drop.y < -260 ||
+          drop.y > height + 260
+        ) {
+          droplets.splice(index, 1);
+        }
+      }
+      requestAnimationFrame(render);
+    }
+    toggle.addEventListener("click", () => {
+      const isOpen = panel.classList.toggle("open");
+      toggle.setAttribute("aria-expanded", String(isOpen));
+    });
+    document.addEventListener("click", (event) => {
+      if (!event.target.closest(".menu")) {
+        panel.classList.remove("open");
+        toggle.setAttribute("aria-expanded", "false");
+      }
+    });
+    canvas.addEventListener("pointermove", setPointer);
+    canvas.addEventListener("pointerdown", (event) => {
+      lastPointer = null;
+      setPointer(event);
+    });
+    canvas.addEventListener("pointerleave", () => {
+      pointer = null;
+      lastPointer = null;
+    });
+    canvas.addEventListener("pointerup", () => {
+      pointer = null;
+      lastPointer = null;
+    });
+    document.querySelectorAll('input[type="range"]').forEach((slider) => {
+      const output = slider.nextElementSibling;
+      const update = () => {
+        settings[slider.dataset.setting] = Number(slider.value);
+        output.textContent = slider.value;
+        if (slider.dataset.setting === "hue") {
+          document.documentElement.style.setProperty("--accent", `hsl(${slider.value}, 86%, 64%)`);
+        }
+      };
+      slider.addEventListener("input", update);
+      update();
+    });
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+    for (let index = 0; index < 16; index += 1) {
+      addFluid(width * (0.35 + Math.random() * 0.3), height * (0.35 + Math.random() * 0.3));
+    }
+    render();
+  </script>
+</body></html>
