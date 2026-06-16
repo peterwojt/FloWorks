@@ -47,7 +47,7 @@
         resizeCanvas();
 
         // Connect to your Node.js server endpoint
-        const socket = new WebSocket('http://localhost:8080/update_cursor_position');
+        const socket = new WebSocket('ws://localhost:8080/update_cursor_position');
 
         socket.onopen = () => {
             statusDiv.textContent = 'Connected! Move your mouse.';

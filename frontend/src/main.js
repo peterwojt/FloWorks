@@ -1,40 +1,33 @@
+
 import * as THREE from '../node_modules/three/build/three.module.js';
 
 const canvas = document.getElementById('glcanvas');
 const gl = canvas.getContext('webgl', { antialias: false });
 if (!gl) { alert('WebGL not supported'); throw new Error('no webgl'); }
 
-// Overlay grid canvas (2D) for discrete grid squares + animation
 const gridCanvas = document.getElementById('gridcanvas');
 const gctx = gridCanvas.getContext('2d');
 
 const clock = new THREE.Clock();
 
-// We need to read back float-ish values from textures.
-// OES_texture_float lets us store wave amplitude precisely.
 const extFloat = gl.getExtension('OES_texture_float');
 if (!extFloat) console.warn('OES_texture_float not available – using UNSIGNED_BYTE fallback');
 
-// ── Resize ───────────────────────────────────────────────────
-// Simulation runs at a lower resolution for performance;
-// display pass upscales it (looks fine, the wave is smooth).
-const SIM_SCALE = 0.4; // sim texture = 40% of screen size
+const SIM_SCALE = 0.4;
 let simW, simH;
 
-// Grid configuration (discrete grid overlay)
-const CELL_SIZE = 16; // px
+const CELL_SIZE = 16;
 let gridCols = 0, gridRows = 0;
-let grid = null; // 2D array of cells
+let grid = null;
 
-const REMOTE_TRAIL_TTL = 2.5; // seconds before a remote cursor fades
+const REMOTE_TRAIL_TTL = 2.5;
 const localClientId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : `client-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 let trailVisibility = localStorage.getItem('trailVisibility') || 'all';
 const remoteCursors = new Map();
 
-// Wave parameters for grid cells
-const FREQ = 3.0; // Hz for a(t)=sin(2pi f t)
-const PERIOD = 1.0 / FREQ; // seconds
-const WAVELENGTH = 120; // spatial wavelength in pixels for a(x)=sin(2pi x / wavelength)
+const FREQ = 3.0;
+const PERIOD = 1.0 / FREQ;
+const WAVELENGTH = 120;
 let waveMode = 'inward';
 let dampingB = 1.0;
 let phaseM = 1.0;
@@ -61,10 +54,8 @@ function resize() {
     simW = Math.max(1, Math.floor(canvas.width  * SIM_SCALE));
     simH = Math.max(1, Math.floor(canvas.height * SIM_SCALE));
     gl.viewport(0, 0, canvas.width, canvas.height);
-    // Create or rebuild FBOs if they don't exist or size changed.
     if (!fbos || oldSimW !== simW || oldSimH !== simH) initFBOs();
 
-    // (re)create the discrete grid to cover the new size
     makeGrid(gridCanvas.width, gridCanvas.height);
 }
 window.addEventListener('resize', resize);
@@ -102,7 +93,6 @@ trailSelect.addEventListener('change', () => {
 
 trailSelect.value = trailVisibility;
 
-// ── Shader helpers ───────────────────────────────────────────
 function compile(type, src) {
     const s = gl.createShader(type);
     gl.shaderSource(s, src);
@@ -124,8 +114,6 @@ function link(vertSrc, fragSrc) {
 
 function src(id) { return document.getElementById(id).textContent; }
 
-// ── Shared fullscreen quad ────────────────────────────────────
-// All three passes draw the same quad; only the shader changes.
 const quadBuf = gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
 gl.bufferData(gl.ARRAY_BUFFER,
@@ -138,12 +126,10 @@ function bindQuad(program) {
     gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
 }
 
-// ── Programs ─────────────────────────────────────────────────
 const paintProg   = link(src('vert-shader'), src('paint-frag'));
 const waveProg    = link(src('vert-shader'), src('wave-frag'));
 const displayProg = link(src('vert-shader'), src('display-frag'));
 
-// Cache uniform locations for each program.
 const U = {
     paint: {
         resolution : gl.getUniformLocation(paintProg,   'u_resolution'),
@@ -167,7 +153,6 @@ const U = {
     },
 };
 
-// ── Framebuffer / texture helpers ────────────────────────────
 function makeTexture(w, h) {
     const tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -190,22 +175,15 @@ function makeFBO(w, h) {
     return { fbo, tex, w, h };
 }
 
-// Ping-pong: we need THREE buffers.
-//   fboA = "two frames ago"  (prev in wave equation)
-//   fboB = "last frame"      (curr in wave equation)
-//   fboC = "this frame"      (we write next here, then rotate)
 let fbos = null;
 function initFBOs() {
     fbos = [makeFBO(simW, simH), makeFBO(simW, simH), makeFBO(simW, simH)];
 }
 
-// ── Mouse state ───────────────────────────────────────────────
-// NDC mouse position and velocity (NDC units/frame).
 let mouseNDC  = { x: 0.0, y: 0.0 };
 let prevMouse = { x: 0.0, y: 0.0 };
-let velocity  = 0.0; // scalar speed, NDC/frame
-let velocityDir = { x: 1.0, y: 0.0 }; // normalized velocity direction
-// Expose to window for HUD (index.html) to read.
+let velocity  = 0.0;
+let velocityDir = { x: 1.0, y: 0.0 };
 window.mouseNDC = mouseNDC;
 window.frameVelocity = 0;
 
@@ -273,7 +251,6 @@ function sendCursorUpdate(clientX, clientY, vx, vy) {
     }
 }
 
-// Track previous mouse in pixel coords and time for stamping
 let prevMousePixel = { x: 0, y: 0 };
 let prevMouseTime = performance.now() / 1000.0;
 let hasPrevMousePixel = false;
@@ -285,22 +262,18 @@ function updateMouse(clientX, clientY) {
     const dx = nx - mouseNDC.x;
     const dy = ny - mouseNDC.y;
     velocity   = Math.hypot(dx, dy);
-    // Normalize velocity direction for perpendicular wake.
     if (velocity > 0.0001) {
         velocityDir.x = dx / velocity;
         velocityDir.y = dy / velocity;
     }
-    // Compute pixel coords and dt
     const px = ((clientX - rect.left));
     const py = ((clientY - rect.top));
     const now = performance.now() / 1000.0;
     const dtMouse = Math.max(1e-3, now - prevMouseTime);
 
-    // Compute velocity vector in pixel/sec
     const vx = (px - prevMousePixel.x) / dtMouse;
     const vy = (py - prevMousePixel.y) / dtMouse;
 
-    // Stamp the grid cell corresponding to the previous mouse position (t1)
     if (hasPrevMousePixel) {
         stampVelocityToGrid(prevMousePixel.x, prevMousePixel.y, vx, vy);
     }
@@ -322,30 +295,24 @@ canvas.addEventListener('touchmove', e => {
     updateMouse(e.touches[0].clientX, e.touches[0].clientY);
 }, { passive: false });
 
-// ── Render loop ───────────────────────────────────────────────
-let frameVelocity = 0; // smoothed velocity, decays when mouse stops
+let frameVelocity = 0;
 
-// Initialise everything.
 resize();
 
 function render() {
-    // Smooth velocity: blend current frame speed in, then decay.
-    // This ensures the brush stamp disappears when the mouse stops.
     frameVelocity = frameVelocity * 0.7 + velocity * 0.3;
-    velocity = 0; // reset raw; only refreshed by mousemove
+    velocity = 0;
 
     window.frameVelocity = frameVelocity;
 
     const dt = Math.min(clock.getDelta(), 1.5);
-    const time = performance.now() / 1000.0; // use same timebase as stamping
+    const time = performance.now() / 1000.0;
 
-    // Clear the GL canvas to a simple background (we now render waves on grid)
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.clearColor(0.02, 0.02, 0.04, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
-    // Draw the grid overlay (2D canvas)
     drawGrid(time);
     drawCursorMirrors(time);
 
@@ -355,7 +322,6 @@ function render() {
 render();
 
 function drawCursorMirrors(time) {
-    // Remote cursor visuals removed. No-op to keep code path stable.
     return;
 }
 
@@ -363,12 +329,11 @@ function drawCursorMirrors(time) {
 function stampVelocityToGrid(px, py, vx, vy) {
     const now = performance.now() / 1000.0;
     const mag = Math.hypot(vx, vy);
-    if (mag < 1e-2) return; // ignore tiny movement
+    if (mag < 1e-2) return;
 
-    // Normalize speed into desired range [0.01, 0.03]
     function normalizeSpeed(magPxPerSec) {
-        const min = 50;   // px/s -> maps to 0.01
-        const max = 2000; // px/s -> maps to 0.03
+        const min = 50;
+        const max = 2000;
         const t = Math.min(1, Math.max(0, (magPxPerSec - min) / (max - min)));
         return 0.01 + t * 0.02;
     }
@@ -378,25 +343,20 @@ function stampVelocityToGrid(px, py, vx, vy) {
     const cj = Math.floor(py / CELL_SIZE);
     if (ci < 0 || cj < 0 || ci >= gridCols || cj >= gridRows) return;
 
-    // Set the center cell immediately
     const centerCell = grid[ci][cj];
     centerCell.triggeredAt = now;
     centerCell.phase = 0;
 
-    // Determine perpendicular directions in pixel space
     const ndx = vx / mag;
     const ndy = vy / mag;
     const perp1 = { x: -ndy, y: ndx };
     const perp2 = { x: ndy, y: -ndx };
 
-    // Propagation length scaled from normalized speed (map to 50..400 px)
     const lengthPx = 50 + ((normSpeed - 0.01) / 0.02) * (400 - 50);
 
-    // Cell center in pixels
     const cx = ci * CELL_SIZE + CELL_SIZE * 0.5;
     const cy = cj * CELL_SIZE + CELL_SIZE * 0.5;
 
-    // For both perpendicular directions, rasterise a line of cells.
     [perp1, perp2].forEach(perp => {
         const ex = cx + perp.x * lengthPx;
         const ey = cy + perp.y * lengthPx;
@@ -411,7 +371,6 @@ function stampVelocityToGrid(px, py, vx, vy) {
             const cellCy = yj * CELL_SIZE + CELL_SIZE * 0.5;
             const dist = Math.hypot(cellCx - cx, cellCy - cy);
             cell.triggeredAt = now;
-            // spatial phase offset scaled by m
             cell.phase = 2 * Math.PI * phaseM * (dist / WAVELENGTH);
         }
     });
