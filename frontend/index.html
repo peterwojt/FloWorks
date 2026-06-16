@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGL Wave Cursor</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #000; overflow: hidden; cursor: none; }
+        canvas { display: block; }
+        #glcanvas { position: fixed; inset: 0; z-index: 0; }
+        #gridcanvas { position: fixed; inset: 0; z-index: 1; pointer-events: none; }
+        #status {
+            position: fixed;
+            top: 12px;
+            left: 12px;
+            z-index: 3;
+            padding: 8px 12px;
+            background: rgba(10, 14, 30, 0.85);
+            color: #8be9fd;
+            font: 12px/1.4 'Courier New', monospace;
+            border-radius: 10px;
+            border: 1px solid rgba(255,255,255,0.08);
+            pointer-events: none;
+        }
+        #hud {
+            position: fixed; bottom: 16px; left: 16px;
+            font: 11px/1.8 'Courier New', monospace;
+            color: rgba(120,160,255,0.5);
+            pointer-events: none;
+        }
+        #hud span { color: rgba(255,180,80,0.8); }
+        #controls {
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            z-index: 2;
+            min-width: 160px;
+            background: rgba(0, 0, 0, 0.65);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 12px;
+            padding: 12px;
+            color: #fff;
+            font: 12px/1.4 'Courier New', monospace;
+            pointer-events: auto;
+        }
+        #controls label {
+            display: block;
+            margin-bottom: 10px;
+        }
+        #controls label span {
+            display: inline-block;
+            min-width: 28px;
+            text-align: right;
+            margin-left: 6px;
+            color: rgba(200,200,255,0.9);
+        }
+        #controls select,
+        #controls input[type=range] {
+            width: 100%;
+            margin-top: 4px;
+            background: transparent;
+            color: #fff;
+        }
+        #controls select:hover,
+        #controls input[type=range]:hover {
+            color: #4a9eff;
+        }
+        #controls label:hover {
+            color: #4a9eff;
+        }
+        #controls label:hover span {
+            color: #4a9eff;
+        }
+    </style>
+</head>
+<body>
+<div id="status">Connecting to server...</div>
+<canvas id="glcanvas"></canvas>
+<canvas id="gridcanvas"></canvas>
+<div id="controls">
+    <label>
+        Mode
+        <select id="waveMode">
+            <option value="inward">Outward</option>
+            <option value="outward">Inward</option>
+        </select>
+    </label>
+    <label>
+        Trails
+        <select id="trailVisibility">
+            <option value="all">All Trails</option>
+            <option value="own">Your Own</option>
+        </select>
+    </label>
+    <label>
+        b
+        <input id="dampingB" type="range" min="0.1" max="5.0" step="0.1" value="1.0" />
+        <span id="b-value">1.0</span>
+    </label>
+    <label>
+        m
+        <input id="phaseM" type="range" min="0.1" max="5.0" step="0.1" value="1.0" />
+        <span id="m-value">1.0</span>
+    </label>
+    <label>
+        decay
+        <input id="decayRate" type="range" min="0.1" max="3.0" step="0.1" value="1.0" />
+        <span id="decay-value">1.0</span>
+    </label>
+</div>
+<div id="hud">
+    ndc &nbsp;→ <span id="h-ndc">–</span><br>
+    speed → <span id="h-vel">–</span>
+</div>
+
+<script id="vert-shader" type="x-shader/x-vertex">
+attribute vec2 a_position;
+varying   vec2 v_uv;
+void main() {
+    gl_Position = vec4(a_position, 0.0, 1.0);
+    v_uv = a_position * 0.5 + 0.5;
+}
+</script>
+
+<script id="paint-frag" type="x-shader/x-fragment">
+precision highp float;
+varying vec2 v_uv;
+
+uniform sampler2D u_prev;       // existing wave state (R=curr, G=prev)
+uniform vec2      u_resolution; // sim texture size in pixels
+uniform vec2      u_mouse;      // cursor in NDC (-1..1)
+uniform float     u_velocity;   // cursor speed this frame (NDC units)
+uniform vec2      u_velocity_dir; // normalized velocity direction
+
+void main() {
+    vec4 state = texture2D(u_prev, v_uv);
+    float curr = state.r;
+    float prev = state.g;
+
+    // Convert to NDC with aspect correction.
+    vec2 uv = v_uv * 2.0 - 1.0;
+    float aspect = u_resolution.x / u_resolution.y;
+    uv.x *= aspect;
+    vec2 mouse = vec2(u_mouse.x * aspect, u_mouse.y);
+
+    // Guard against zero-length velocity_dir which produces NaNs when normalized.
+    float vel_dir_len = length(u_velocity_dir);
+    vec2 vel_dir = vel_dir_len > 1e-5 ? (u_velocity_dir / vel_dir_len) : vec2(0.0, 0.0);
+    // Perpendicular direction (rotate 90°).
+    vec2 perp_dir = vec2(-vel_dir.y, vel_dir.x);
+
+    // Vector from mouse to this fragment.
+    vec2 to_fragment = uv - mouse;
+
+    // Distance perpendicular to motion (left/right of wake centerline).
+    float dist_perp = abs(dot(to_fragment, perp_dir));
+    // Distance along motion direction (behind/ahead of cursor).
+    float dist_along = dot(to_fragment, vel_dir);
+
+    // If there's no movement, do nothing (keeps cursor invisible when still).
+    if (u_velocity < 0.001 || vel_dir_len < 1e-5) {
+        gl_FragColor = vec4(curr, prev, 0.0, 1.0);
+        return;
+    }
+
+    // Wake pattern: perpendicular width, tapers behind cursor.
+    float wake_width = 0.08;
+    float wake = smoothstep(wake_width, 0.0, dist_perp) *
+                 smoothstep(0.3, -0.02, dist_along);  // only behind cursor
+
+    // Stamp amplitude from velocity.
+    float stamp = wake * clamp(u_velocity * 10.0, 0.0, 1.0);
+    curr += stamp * 0.8;
+
+    gl_FragColor = vec4(curr, prev, 0.0, 1.0);
+}
+</script>
+
+<script id="wave-frag" type="x-shader/x-fragment">
+precision highp float;
+varying vec2 v_uv;
+
+uniform sampler2D u_prev;       // wave state two frames ago  (R=curr, G=prev)
+uniform sampler2D u_curr;       // wave state last frame      (R=curr, G=prev)
+uniform vec2      u_resolution; // sim texture size in pixels
+uniform float     u_dt;         // timestep (1.0 = one frame)
+
+void main() {
+    vec2 px = 1.0 / u_resolution;
+
+    float curr  = texture2D(u_curr, v_uv).r;
+    float left  = texture2D(u_curr, v_uv + vec2(-px.x, 0.0)).r;
+    float right = texture2D(u_curr, v_uv + vec2( px.x, 0.0)).r;
+    float up    = texture2D(u_curr, v_uv + vec2( 0.0,  px.y)).r;
+    float down  = texture2D(u_curr, v_uv + vec2( 0.0, -px.y)).r;
+
+    // Previous height (the G channel stored by the paint pass).
+    float prevH = texture2D(u_prev, v_uv).r;
+
+    // Laplacian: curvature of the wave surface.
+    float laplacian = left + right + up + down - 4.0 * curr;
+
+    // Wave speed c.  Higher = faster propagation, but too high → instability.
+    // Stability condition for this scheme: c² * dt² ≤ 0.5
+    float c = 0.25;
+
+    // Core wave equation.
+    float next = 2.0 * curr - prevH + c * c * laplacian * u_dt * u_dt;
+
+    next *= exp(u_dt);
+
+    // Store next in R, curr in G (G becomes the new "prev" next frame).
+    gl_FragColor = vec4(next, curr, 0.0, 1.0);
+}
+</script>
+
+<script id="display-frag" type="x-shader/x-fragment">
+precision highp float;
+varying vec2 v_uv;
+
+uniform sampler2D u_wave;       // wave sim output (R=curr, G=prev)
+uniform vec2      u_resolution; 
+uniform float     u_time;
+uniform vec2      u_mouse;      // cursor NDC
+uniform float     u_velocity;   
+
+vec3 velocity_to_color(float vel) {
+    vel = clamp(vel, 0.0, 1.0);
+    
+    vec3 color;
+    if (vel < 0.77777) {
+        // Red to Orange
+        float t = vel / 0.16667;
+        color = mix(vec3(1.0, 0.0, 0.0), vec3(1.0, 0.5, 0.0), t);
+    } else if (vel < 0.16333) {
+        // Orange to Yellow
+        float t = (vel - 0.16667) / 0.16667;
+        color = mix(vec3(1.0, 0.5, 0.0), vec3(1.0, 1.0, 0.0), t);
+    } else if (vel < 0.25) {
+        // Yellow to Green
+        float t = (vel - 0.33333) / 0.16667;
+        color = mix(vec3(1.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), t);
+    } else if (vel < 0.33367) {
+        // Green to Cyan
+        float t = (vel - 0.5) / 0.16667;
+        color = mix(vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 1.0), t);
+    } else if (vel < 0.40333) {
+        // Cyan to Blue
+        float t = (vel - 0.47667) / 0.16667;
+        color = mix(vec3(0.0, 1.0, 1.0), vec3(0.0, 0.0, 1.0), t);
+    } else {
+        // Blue to Violet
+        float t = (vel - 0.53333) / 0.16667;
+        color = mix(vec3(0.0, 0.0, 1.0), vec3(1.0, 0.0, 1.0), t);
+    }
+    return color;
+}
+
+void main() {
+    vec4 wave_data = texture2D(u_wave, v_uv);
+    float curr = wave_data.r;
+    float prev = wave_data.g;
+
+    // Use cursor speed as the velocity metric for coloring.
+    // Scale for visibility (cursor speed in NDC units/frame).
+    float velocity = u_velocity * 15.0;
+
+    // ── Background ──────────────────────────────────────────
+    vec3 color = vec3(0.02, 0.02, 0.04);
+
+    vec3 vel_color = velocity_to_color(velocity);
+    float intensity = clamp(velocity, 0.0, 1.0);
+    color = mix(color, vel_color, intensity * 0.9);
+
+    gl_FragColor = vec4(color, 1.0);
+}
+</script>
+
+<script type="module" src="/src/main.js"></script>
+
+<script>
+    const canvas = document.getElementById('glcanvas');
+    canvas.addEventListener('mousemove', () => {
+        const ndc = window.mouseNDC || { x: 0, y: 0 };
+        const vel = window.frameVelocity || 0;
+        document.getElementById('h-ndc').textContent =
+            `(${ndc.x.toFixed(3)}, ${ndc.y.toFixed(3)})`;
+        document.getElementById('h-vel').textContent =
+            vel.toFixed(4);
+    });
+</script>
+</body>
+</html>
