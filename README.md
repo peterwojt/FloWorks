@@ -1,4 +1,13 @@
 READ ME
-This is a website for a class porject
-tracks cursor movement and does a fluid sim
-on its position
+
+• FloWorks •
+
+
+This is a website for a class project
+
+It tracks cursor movement and does a 
+fluid sim on the cursor
+
+This fluid/particle sim also shows the 
+location and effects for other mice on
+the website
