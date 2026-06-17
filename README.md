@@ -1,6 +1,4 @@
-READ ME
-
-• FloWorks •
+# **• FloWorks •**
 
 
 This is a website for a class project
@@ -11,3 +9,7 @@ fluid sim on the cursor
 This fluid/particle sim also shows the 
 location and effects for other mice on
 the website
+
+## Features
+1. Sliders for changing size of waves
+2. Server connectivity using 'AWS'
