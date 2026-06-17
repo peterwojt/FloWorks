@@ -12,4 +12,4 @@ the website
 
 ## Features
 1. Sliders for changing size of waves
-2. Server connectivity using 'AWS'
+2. Server connectivity using `AWS`
